@@ -37,8 +37,8 @@ fi
 cd "${LEDGER_DIR}"
 
 # Configure git identity for commits
-git config user.name "golem-${MACHINE_UUID}"
-git config user.email "golem@noreply"
+git config user.name "${GIT_USER_NAME:-golem-${MACHINE_UUID}}"
+git config user.email "${GIT_USER_EMAIL:-golem@noreply}"
 
 # Ensure our branch exists (create from remote if available, or orphan)
 if git ls-remote --heads "${GIT_REMOTE}" "${GIT_BRANCH}" | grep -q "${GIT_BRANCH}"; then

@@ -19,6 +19,8 @@ services:
       LEDGER_REPO: ${LEDGER_REPO:-}
       POLL_INTERVAL: ${POLL_INTERVAL:-3}
       GIT_REMOTE: origin
+      GIT_USER_NAME: "relaxgg-devops"
+      GIT_USER_EMAIL: "devops@relax.gg"
       GIT_SSH_COMMAND: "ssh -i /run/secrets/deploy_key -o StrictHostKeyChecking=no"
     volumes:
       # Persistent ledger clone
