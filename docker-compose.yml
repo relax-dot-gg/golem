@@ -1,0 +1,38 @@
+# Git Ledger Golem — Docker Compose
+# Deploys the golem executor on a target host.
+#
+# Usage:
+#   docker compose up -d
+#
+# Requires:
+#   - /etc/machine-uuid on host (unique host identity)
+#   - ./deploy_key (SSH key with write access to ledger repo)
+
+services:
+  golem:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    environment:
+      LEDGER_DIR: /ledger
+      LEDGER_REPO: ${LEDGER_REPO:-}
+      POLL_INTERVAL: ${POLL_INTERVAL:-3}
+      GIT_REMOTE: origin
+      GIT_SSH_COMMAND: "ssh -i /run/secrets/deploy_key -o StrictHostKeyChecking=no"
+    volumes:
+      # Persistent ledger clone
+      - ledger-data:/ledger
+      # Machine identity
+      - /etc/machine-uuid:/etc/machine-uuid:ro
+      # Deploy key for git auth
+      - ./deploy_key:/run/secrets/deploy_key:ro
+      # Host access for operations
+      - /var/run/docker.sock:/var/run/docker.sock
+      - /:/host:rw
+    network_mode: host
+    pid: host
+
+volumes:
+  ledger-data:
+    driver: local
