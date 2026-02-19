@@ -32,20 +32,28 @@ LLM writes cmd.yaml ──> git push ──> golem polls (every 3s)
 
 ### Branch Convention
 
-Each host gets its own branch, named by its machine UUID (`/etc/machine-uuid`). Golem reads its UUID on boot and checks out/creates its branch automatically.
+All hosts use the default branch (`main`). Host isolation is via directory paths.
 
-### File Convention
+### Directory Structure
 
-Commands and outputs live in timestamped incident directories:
+Commands and outputs live under per-host incident directories:
 
 ```
-incidents/
-  2026-02-15T16:30-disk-full/
-    2026-02-15T16:30:00Z-cmd.yaml
-    2026-02-15T16:30:05Z-out.txt
-    2026-02-15T16:31:12Z-cmd.yaml
-    2026-02-15T16:31:15Z-out.txt
+hosts/
+  <machine-uuid>/
+    incidents/
+      2026-02-15T16:30-disk-full/
+        2026-02-15T16:30:00Z-cmd.yml
+        2026-02-15T16:30:05Z-out.yml
+        _report.yml
+    archive/
+      2026-02-15T16:30-disk-full/
+        2026-02-15T16:30:00Z-cmd.yml
+        2026-02-15T16:30:05Z-out.yml
+        _report.yml
 ```
+
+Archiving is a simple move of the incident directory from `incidents/` to `archive/`.
 
 ### Command Format
 
@@ -56,6 +64,20 @@ type: shell
 ```
 
 Supported types: `shell` (default), `docker-inspect`, `docker-logs`.
+
+### Output Format
+
+Outputs are YAML to include exit code and timing:
+
+```yaml
+exit_code: 0
+started_at: 2026-02-15T16:30:05Z
+ended_at: 2026-02-15T16:30:07Z
+output: |-
+  <raw stdout/stderr>
+```
+
+The final incident report is `_report.yml` in the incident directory.
 
 ## Deployment
 
@@ -88,7 +110,7 @@ The safety layer is **who writes the commands** (your LLM, your triage pipeline,
 
 - Docker + Docker Compose
 - `/etc/machine-uuid` on the host
-- SSH deploy key with write access to the ledger repo
+- SSH deploy key with **write** access to the ledger repo
 - Git repo (the "ledger") for command/output exchange
 
 ## Inspired By
