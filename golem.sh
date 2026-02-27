@@ -11,6 +11,8 @@ PROCESS_SCRIPT="${PROCESS_SCRIPT:-/opt/golem/process-commands.sh}"
 
 # Identity: read machine UUID from /etc/machine-uuid (injected via volume mount)
 MACHINE_UUID_FILE="${MACHINE_UUID_FILE:-/etc/machine-uuid}"
+export ALLOWED_SIGNERS_FILE="${ALLOWED_SIGNERS_FILE:-/etc/golem/allowed_signers}"
+
 if [ ! -f "${MACHINE_UUID_FILE}" ]; then
     echo "FATAL: ${MACHINE_UUID_FILE} not found. Mount the host's /etc/machine-uuid into the container." >&2
     exit 1
@@ -39,6 +41,11 @@ cd "${LEDGER_DIR}"
 # Configure git identity for commits
 git config user.name "${GIT_USER_NAME:-golem-${MACHINE_UUID}}"
 git config user.email "${GIT_USER_EMAIL:-golem@noreply}"
+
+if [ -f "${ALLOWED_SIGNERS_FILE}" ]; then
+    git config gpg.format ssh
+    git config gpg.ssh.allowedSignersFile "${ALLOWED_SIGNERS_FILE}"
+fi
 
 # Ensure our branch exists (create from remote if available, or orphan)
 if git ls-remote --heads "${GIT_REMOTE}" "${GIT_BRANCH}" | grep -q "${GIT_BRANCH}"; then

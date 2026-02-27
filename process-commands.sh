@@ -43,6 +43,17 @@ fi
     echo "---"
 } > "${OUT_FILE}"
 
+# --- Signature Verification ---
+if [ -n "${ALLOWED_SIGNERS_FILE:-}" ] && [ -f "${ALLOWED_SIGNERS_FILE}" ]; then
+    sig_status=$(git log -1 --format="%G?" -- "${CMD_FILE}" 2>/dev/null || echo "U")
+    if [ "${sig_status}" != "G" ]; then
+        echo "ERROR: Command file '${CMD_FILE}' has invalid or missing signature (status: ${sig_status})." >> "${OUT_FILE}"
+        echo "---" >> "${OUT_FILE}"
+        echo "# EXIT: 126" >> "${OUT_FILE}"
+        exit 0
+    fi
+fi
+
 # --- Execute ---
 case "${cmd_type}" in
     shell)
