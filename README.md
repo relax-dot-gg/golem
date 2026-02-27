@@ -79,6 +79,26 @@ output: |-
 
 The final incident report is `_report.yml` in the incident directory.
 
+## Security: Commit Signature Verification
+
+Golem supports mandatory cryptographic signature verification of incoming commands. This ensures that even if your Git server is compromised, an attacker cannot execute commands on your hosts without possessing an authorized private key.
+
+### How to Enable
+
+1.  **Provision Keys:** On the target host, create `/etc/golem/allowed_signers`.
+2.  **File Format:** This file follows the standard Git/SSH allowed signers format (see `man ssh-keygen`). Each line contains an email address and an SSH public key:
+    ```
+    admin@cyberstorm.dev ssh-ed25519 AAAAC3Nza...
+    agent-planner@relax.gg ssh-rsa AAAAB3Nza...
+    ```
+3.  **Mount the File:** Update your `docker-compose.yml` to mount the signers file:
+    ```yaml
+    volumes:
+      - /etc/golem/allowed_signers:/etc/golem/allowed_signers:ro
+    ```
+
+If the file is present, Golem will reject any command YAML that is not cryptographically signed (`Good` signature) by a key listed in the signers file.
+
 ## Deployment
 
 ```bash
