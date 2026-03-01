@@ -1,5 +1,8 @@
 FROM ubuntu:22.04
 
+# Symlink /bin/sh to bash to support bashisms (like pipefail) in docker-compose entrypoints
+RUN ln -sf /bin/bash /bin/sh
+
 RUN apt-get update && apt-get install -y \
     curl \
     git \
