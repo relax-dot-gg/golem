@@ -37,8 +37,11 @@ export RUN_ONCE=1
 export MACHINE_UUID_FILE="$TEST_DIR/machine-uuid"
 echo "test-host-uuid" > "$MACHINE_UUID_FILE"
 
+# Find the root of the repo relative to this script
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+
 # Run golem (passing current dir as "ledger url" to be used by clone)
-/Users/allenday/src/tmp/golem/golem.sh "$TEST_DIR" "test-host-uuid" > /dev/null 2>&1
+"${REPO_ROOT}/golem.sh" "$TEST_DIR" "test-host-uuid" > /dev/null 2>&1
 
 # Verify output file existence
 LEDGER_DIR="/tmp/golem-ledger"
