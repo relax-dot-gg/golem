@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-set -eo pipefail
+set -e
 
 # Golem: Git-mediated bash executor (Production Parity)
 # Matches the UUID-branching and incidents/ directory protocol

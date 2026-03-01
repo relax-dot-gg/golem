@@ -14,4 +14,4 @@ RUN chmod +x /usr/local/bin/golem.sh
 RUN git config --global user.email "golem@cyberstorm.dev" && \
     git config --global user.name "Golem Executor"
 
-ENTRYPOINT ["/usr/local/bin/golem.sh"]
+ENTRYPOINT ["bash", "/usr/local/bin/golem.sh"]
