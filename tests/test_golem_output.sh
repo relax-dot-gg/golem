@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 set -e
 
+# Find the root of the repo relative to this script BEFORE changing dirs
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+
 # Setup a clean test environment
 TEST_DIR=$(mktemp -d)
 echo "Testing Golem output format in $TEST_DIR"
@@ -36,9 +39,6 @@ export PATH="$TEST_DIR:$PATH"
 export RUN_ONCE=1
 export MACHINE_UUID_FILE="$TEST_DIR/machine-uuid"
 echo "test-host-uuid" > "$MACHINE_UUID_FILE"
-
-# Find the root of the repo relative to this script
-REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 # Run golem (passing current dir as "ledger url" to be used by clone)
 "${REPO_ROOT}/golem.sh" "$TEST_DIR" "test-host-uuid" > /dev/null 2>&1
