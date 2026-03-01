@@ -5,3 +5,22 @@ steps:
       - apk add --no-cache bash git
       - mkdir -p /etc/golem
       - ./tests/test_golem_output.sh
+
+  build-golem:
+    image: woodpeckerci/plugin-docker-buildx
+    when:
+      - event: push
+        branch: main
+      - event: manual
+    settings:
+      repo: ghcr.io/cyberstorm-dev/golem
+      dockerfile: Dockerfile
+      context: .
+      platforms: linux/amd64,linux/arm64
+      tags:
+        - latest
+        - "${CI_COMMIT_SHA:0:8}"
+      registry: ghcr.io
+      username: cyberstorm-dev
+      password:
+        from_secret: ghcr_token
