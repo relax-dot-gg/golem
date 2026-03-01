@@ -84,9 +84,8 @@ process_commands() {
             TIMEOUT=$(grep "^timeout:" "$CMD_FILE" | head -1 | cut -d: -f2- | sed -e 's/^[[:space:]]*//' -e "s/^'//" -e "s/'$//" -e 's/^"//' -e 's/"$//') || true
             TIMEOUT="${TIMEOUT:-30}"
             
-            echo "--- COMMAND START ---" > "$OUT_FILE"
-            echo "$CMD" >> "$OUT_FILE"
-            echo "--- OUTPUT START ---" >> "$OUT_FILE"
+            STARTED_AT=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+            RAW_OUT_FILE="${OUT_FILE}.raw"
             
             # Check signature if we are enforcing it
             IS_ALLOWED=1
@@ -94,7 +93,7 @@ process_commands() {
                 SIG_STATUS=$(git log -1 --format="%G?" -- "$CMD_FILE" 2>/dev/null || echo "U")
                 if [[ "$SIG_STATUS" != "G" ]]; then
                     IS_ALLOWED=0
-                    echo "❌ ERROR: Command file '$CMD_FILE' has invalid or missing signature (status: $SIG_STATUS)." >> "$OUT_FILE"
+                    echo "❌ ERROR: Command file '$CMD_FILE' has invalid or missing signature (status: $SIG_STATUS)." > "$RAW_OUT_FILE"
                 fi
             fi
             
@@ -109,12 +108,23 @@ process_commands() {
                     --network=host \
                     -v /var/run/docker.sock:/var/run/docker.sock \
                     -v /:/host:rw \
-                    ubuntu:22.04 timeout "$TIMEOUT" sh -c "chroot /host bash -c '$CMD'" >> "$OUT_FILE" 2>&1
+                    ubuntu:22.04 timeout "$TIMEOUT" sh -c "chroot /host bash -c '$CMD'" > "$RAW_OUT_FILE" 2>&1
                 EXIT_CODE=$?
                 set -e
             fi
             
-            echo "--- STATUS: $EXIT_CODE ---" >> "$OUT_FILE"
+            ENDED_AT=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+            
+            # Write final YAML output
+            {
+                echo "exit_code: $EXIT_CODE"
+                echo "started_at: $STARTED_AT"
+                echo "ended_at: $ENDED_AT"
+                echo "output: |-"
+                sed 's/^/  /' "$RAW_OUT_FILE"
+            } > "$OUT_FILE"
+            
+            rm -f "$RAW_OUT_FILE"
             
             # Commit results back to ledger
             git add "$OUT_FILE"
