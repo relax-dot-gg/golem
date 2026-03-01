@@ -1,40 +1,32 @@
-# Git Ledger Golem — Docker Compose
-# Deploys the golem executor on a target host.
-#
-# Usage:
-#   docker compose up -d
-#
-# Requires:
-#   - /etc/machine-uuid on host (unique host identity)
-#   - ./deploy_key (SSH key with write access to ledger repo)
+version: '3.8'
 
 services:
   golem:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    restart: unless-stopped
+    build: .
+    container_name: golem-watchtower
+    restart: always
     environment:
-      LEDGER_DIR: /ledger
-      LEDGER_REPO: ${LEDGER_REPO:-}
-      POLL_INTERVAL: ${POLL_INTERVAL:-3}
-      GIT_REMOTE: origin
-      GIT_USER_NAME: "relaxgg-devops"
-      GIT_USER_EMAIL: "devops@relax.gg"
-      GIT_SSH_COMMAND: "ssh -i /run/secrets/deploy_key -o StrictHostKeyChecking=no"
+      - LEDGER_URL=http://100.73.228.90:3000/planner/ops-ledger.git
+      - NODE_NAME=watchtower
+      - GITEA_TOKEN=${GITEA_TOKEN}
+    command: ["http://100.73.228.90:3000/planner/ops-ledger.git", "watchtower"]
     volumes:
-      # Persistent ledger clone
-      - ledger-data:/ledger
-      # Machine identity
-      - /etc/machine-uuid:/etc/machine-uuid:ro
-      # Deploy key for git auth
-      - ./deploy_key:/run/secrets/deploy_key:ro
-      # Host access for operations
       - /var/run/docker.sock:/var/run/docker.sock
-      - /:/host:rw
-    network_mode: host
-    pid: host
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
 
-volumes:
-  ledger-data:
-    driver: local
+  # Secure proxy for docker socket (optional but recommended in nisto docs)
+  docker-proxy:
+    image: tecnativa/docker-socket-proxy
+    container_name: golem-docker-proxy
+    restart: always
+    environment:
+      - CONTAINERS=1
+      - IMAGES=1
+      - NETWORKS=1
+      - VOLUMES=1
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro

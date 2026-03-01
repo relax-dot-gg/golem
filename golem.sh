@@ -1,131 +1,140 @@
 #!/usr/bin/env bash
-# golem.sh — Headless executor that polls a git ledger for pending commands.
-# No LLM, no reasoning. Just fetch → find pending → execute → commit → push.
-set -euo pipefail
+set -eo pipefail
 
-# --- Configuration ---
-LEDGER_DIR="${LEDGER_DIR:-/ledger}"
-POLL_INTERVAL="${POLL_INTERVAL:-3}"
-GIT_REMOTE="${GIT_REMOTE:-origin}"
-PROCESS_SCRIPT="${PROCESS_SCRIPT:-/opt/golem/process-commands.sh}"
+# Golem: Git-mediated bash executor (Production Parity)
+# Matches the UUID-branching and incidents/ directory protocol
 
-# Identity: read machine UUID from /etc/machine-uuid (injected via volume mount)
+LEDGER_URL=$1
+NODE_NAME=$2
+POLL_INTERVAL=${POLL_INTERVAL:-5}
+RUN_ONCE=${RUN_ONCE:-0} # For testing
+ALLOWED_SIGNERS_FILE=${ALLOWED_SIGNERS_FILE:-/etc/golem/allowed_signers}
 MACHINE_UUID_FILE="${MACHINE_UUID_FILE:-/etc/machine-uuid}"
-export ALLOWED_SIGNERS_FILE="${ALLOWED_SIGNERS_FILE:-/etc/golem/allowed_signers}"
 
-if [ ! -f "${MACHINE_UUID_FILE}" ]; then
-    echo "FATAL: ${MACHINE_UUID_FILE} not found. Mount the host's /etc/machine-uuid into the container." >&2
-    exit 1
-fi
-MACHINE_UUID=$(cat "${MACHINE_UUID_FILE}" | tr -d '[:space:]')
-if [ -z "${MACHINE_UUID}" ]; then
-    echo "FATAL: ${MACHINE_UUID_FILE} is empty." >&2
+if [[ -z "$LEDGER_URL" ]]; then
+    echo "Usage: $0 <ledger_url> [node_name]"
     exit 1
 fi
 
-# Branch = machine UUID
-GIT_BRANCH="${MACHINE_UUID}"
-INCIDENTS_DIR="${LEDGER_DIR}/incidents"
-
-# --- Logging ---
-log() { echo "[golem $(date -u +%Y-%m-%dT%H:%M:%SZ)] $*"; }
-
-# --- Setup ---
-if [ ! -d "${LEDGER_DIR}/.git" ]; then
-    log "ERROR: ${LEDGER_DIR} is not a git repository. Clone the ledger first."
-    exit 1
-fi
-
-cd "${LEDGER_DIR}"
-
-# Configure git identity for commits
-git config user.name "${GIT_USER_NAME:-golem-${MACHINE_UUID}}"
-git config user.email "${GIT_USER_EMAIL:-golem@noreply}"
-
-if [ -f "${ALLOWED_SIGNERS_FILE}" ]; then
-    git config gpg.format ssh
-    git config gpg.ssh.allowedSignersFile "${ALLOWED_SIGNERS_FILE}"
-fi
-
-# Ensure our branch exists (create from remote if available, or orphan)
-if git ls-remote --heads "${GIT_REMOTE}" "${GIT_BRANCH}" | grep -q "${GIT_BRANCH}"; then
-    git fetch "${GIT_REMOTE}" "${GIT_BRANCH}" --quiet
-    git checkout -B "${GIT_BRANCH}" "${GIT_REMOTE}/${GIT_BRANCH}" --quiet
+# Identity: Use machine UUID if available, else fallback to node_name or hostname
+if [[ -f "$MACHINE_UUID_FILE" ]]; then
+    MACHINE_UUID=$(cat "$MACHINE_UUID_FILE" | tr -d '[:space:]')
+elif [[ -n "$NODE_NAME" ]]; then
+    MACHINE_UUID="$NODE_NAME"
 else
-    git checkout --orphan "${GIT_BRANCH}" --quiet 2>/dev/null || git checkout "${GIT_BRANCH}" --quiet
-    git rm -rf . --quiet 2>/dev/null || true
-    echo "# Golem ledger for ${MACHINE_UUID}" > README.md
-    git add README.md
-    git commit -m "golem: init branch for ${MACHINE_UUID}" --quiet
-    git push "${GIT_REMOTE}" "${GIT_BRANCH}" --quiet 2>/dev/null || true
+    MACHINE_UUID=$(hostname)
 fi
 
-log "Golem started uuid=${MACHINE_UUID}, branch=${GIT_BRANCH}, polling every ${POLL_INTERVAL}s"
-log "Watching: ${INCIDENTS_DIR}"
+# In production, every host has its own branch matching its UUID
+GIT_BRANCH="${MACHINE_UUID}"
+WORKDIR="/tmp/golem-ledger"
 
-# --- Main Loop ---
-while true; do
-    # Fetch latest from remote
-    if ! git fetch "${GIT_REMOTE}" "${GIT_BRANCH}" --quiet 2>/dev/null; then
-        log "WARN: git fetch failed, retrying in ${POLL_INTERVAL}s"
-        sleep "${POLL_INTERVAL}"
-        continue
-    fi
+if [[ -n "$GITEA_TOKEN" ]]; then
+    git config --global http.extraHeader "AUTHORIZATION: token $GITEA_TOKEN"
+fi
 
-    # Fast-forward merge (no conflicts in a well-behaved ledger)
-    git merge "${GIT_REMOTE}/${GIT_BRANCH}" --ff-only --quiet 2>/dev/null || true
+# Ensure git identity is set
+if ! git config --global user.email >/dev/null; then
+    git config --global user.email "golem@cyberstorm.dev"
+    git config --global user.name "Golem Executor"
+fi
 
-    # Ensure incidents directory exists
-    mkdir -p "${INCIDENTS_DIR}"
+# Configure signature verification if configured
+if [[ -f "$ALLOWED_SIGNERS_FILE" ]]; then
+    git config --global gpg.format ssh
+    git config --global gpg.ssh.allowedSignersFile "$ALLOWED_SIGNERS_FILE"
+fi
 
-    # Find all pending cmd files (cmd exists but no corresponding out file)
-    pending_found=false
-    for incident_dir in "${INCIDENTS_DIR}"/*/; do
-        [ -d "${incident_dir}" ] || continue
+rm -rf "$WORKDIR"
+mkdir -p "$WORKDIR"
+echo "🤖 Golem started on node: $MACHINE_UUID (Branch: $GIT_BRANCH)"
 
-        for cmd_file in "${incident_dir}"/*-cmd.yaml; do
-            [ -f "${cmd_file}" ] || continue
+# Sync branch
+if git ls-remote --heads "$LEDGER_URL" "$GIT_BRANCH" | grep -q "$GIT_BRANCH"; then
+    git clone --branch "$GIT_BRANCH" "$LEDGER_URL" "$WORKDIR"
+else
+    # First time initialization for this host
+    git clone "$LEDGER_URL" "$WORKDIR"
+    cd "$WORKDIR"
+    git checkout --orphan "$GIT_BRANCH"
+    git rm -rf . || true
+    echo "# Golem ledger for $MACHINE_UUID" > README.md
+    git add README.md
+    git commit -m "golem: init branch for $MACHINE_UUID"
+    git push origin "$GIT_BRANCH"
+fi
 
-            # Derive output filename: TIMESTAMP-cmd.yaml → TIMESTAMP-out.txt
-            base=$(basename "${cmd_file}")
-            ts_prefix="${base%%-cmd.yaml}"
-            out_file="${incident_dir}/${ts_prefix}-out.txt"
+cd "$WORKDIR"
 
-            # Skip if already processed
-            [ -f "${out_file}" ] && continue
-
-            pending_found=true
-            log "Processing: ${cmd_file}"
-
-            # Execute via process-commands.sh
-            if bash "${PROCESS_SCRIPT}" "${cmd_file}" "${out_file}"; then
-                log "OK: ${out_file}"
-            else
-                log "WARN: Non-zero exit from processor for ${cmd_file}"
-            fi
-
-            # Commit and push the output
-            cd "${LEDGER_DIR}"
-            if [ -f "${out_file}" ]; then
-                git add "${out_file}"
-                git commit -m "golem(${MACHINE_UUID:0:8}): output for ${base}" --quiet
-                if ! git push "${GIT_REMOTE}" "${GIT_BRANCH}" --quiet 2>/dev/null; then
-                    log "WARN: push failed, will retry next cycle"
+process_commands() {
+    # Match official structure: incidents/<timestamp>-<slug>/<NNN>-cmd.yaml
+    mkdir -p incidents
+    
+    # Find all cmd files recursively in incidents/
+    PENDING_CMDS=$(find incidents -name "*-cmd.yaml" | sort)
+    
+    for CMD_FILE in $PENDING_CMDS; do
+        OUT_FILE="${CMD_FILE%-cmd.yaml}-out.txt"
+        
+        if [[ ! -f "$OUT_FILE" ]]; then
+            echo "⚡ Executing command from $CMD_FILE..."
+            
+            # Simple YAML parser (extract 'command' field)
+            CMD=$(grep "^command:" "$CMD_FILE" | head -1 | cut -d: -f2- | sed -e 's/^[[:space:]]*//' -e "s/^'//" -e "s/'$//" -e 's/^"//' -e 's/"$//') || true
+            TIMEOUT=$(grep "^timeout:" "$CMD_FILE" | head -1 | cut -d: -f2- | sed -e 's/^[[:space:]]*//' -e "s/^'//" -e "s/'$//" -e 's/^"//' -e 's/"$//') || true
+            TIMEOUT="${TIMEOUT:-30}"
+            
+            echo "--- COMMAND START ---" > "$OUT_FILE"
+            echo "$CMD" >> "$OUT_FILE"
+            echo "--- OUTPUT START ---" >> "$OUT_FILE"
+            
+            # Check signature if we are enforcing it
+            IS_ALLOWED=1
+            if [[ -f "$ALLOWED_SIGNERS_FILE" ]]; then
+                SIG_STATUS=$(git log -1 --format="%G?" -- "$CMD_FILE" 2>/dev/null || echo "U")
+                if [[ "$SIG_STATUS" != "G" ]]; then
+                    IS_ALLOWED=0
+                    echo "❌ ERROR: Command file '$CMD_FILE' has invalid or missing signature (status: $SIG_STATUS)." >> "$OUT_FILE"
                 fi
-            else
-                log "WARN: output file not created for ${cmd_file}, skipping commit"
-                # Create a minimal error output so we don't loop on this cmd forever
-                echo "ERROR: process-commands.sh failed to create output" > "${out_file}"
-                git add "${out_file}"
-                git commit -m "golem(${MACHINE_UUID:0:8}): ERROR for ${base}" --quiet
-                git push "${GIT_REMOTE}" "${GIT_BRANCH}" --quiet 2>/dev/null || true
             fi
-        done
+            
+            if [[ "$IS_ALLOWED" -eq 0 ]]; then
+                EXIT_CODE=126
+            else
+                # Execute in an ephemeral container with host access (replaces SSH exec)
+                set +e
+                docker run --rm \
+                    --name "golem-task-$(date +%s)" \
+                    --pid=host \
+                    --network=host \
+                    -v /var/run/docker.sock:/var/run/docker.sock \
+                    -v /:/host:rw \
+                    ubuntu:22.04 timeout "$TIMEOUT" sh -c "chroot /host bash -c '$CMD'" >> "$OUT_FILE" 2>&1
+                EXIT_CODE=$?
+                set -e
+            fi
+            
+            echo "--- STATUS: $EXIT_CODE ---" >> "$OUT_FILE"
+            
+            # Commit results back to ledger
+            git add "$OUT_FILE"
+            git commit -m "golem($MACHINE_UUID): output for $(basename "$CMD_FILE")" || true
+            git push origin "$GIT_BRANCH" || true
+            
+            echo "✅ Finished $CMD_FILE"
+        fi
     done
+}
 
-    if [ "${pending_found}" = false ]; then
-        : # Nothing pending — silent poll
+while true; do
+    git fetch origin "$GIT_BRANCH" || true
+    git reset --hard "origin/$GIT_BRANCH" || true
+
+    process_commands
+
+    if [[ "$RUN_ONCE" -eq 1 ]]; then
+        break
     fi
 
-    sleep "${POLL_INTERVAL}"
+    sleep "$POLL_INTERVAL"
 done

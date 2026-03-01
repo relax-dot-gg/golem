@@ -1,19 +1,17 @@
-FROM alpine:3.19
+FROM ubuntu:22.04
 
-RUN apk add --no-cache \
-    bash \
-    git \
-    curl \
-    openssh-client \
-    coreutils \
-    docker-cli \
-    jq \
-    procps \
-    util-linux
+RUN apt-get update && apt-get install -y 
+    curl 
+    git 
+    jq 
+    docker.io 
+    && rm -rf /var/lib/apt/lists/*
 
-COPY golem.sh /opt/golem/golem.sh
-COPY process-commands.sh /opt/golem/process-commands.sh
-COPY entrypoint.sh /opt/golem/entrypoint.sh
-RUN chmod +x /opt/golem/*.sh
+COPY golem.sh /usr/local/bin/golem.sh
+RUN chmod +x /usr/local/bin/golem.sh
 
-ENTRYPOINT ["/opt/golem/entrypoint.sh"]
+# Git identity for golem
+RUN git config --global user.email "golem@cyberstorm.dev" && 
+    git config --global user.name "Golem Executor"
+
+ENTRYPOINT ["/usr/local/bin/golem.sh"]
