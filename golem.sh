@@ -128,8 +128,8 @@ process_commands() {
             
             # Commit results back to ledger
             git add "$OUT_FILE"
-            git commit -m "golem($MACHINE_UUID): output for $(basename "$CMD_FILE")" || true
-            git push origin "$GIT_BRANCH" || true
+            git commit -m "golem($MACHINE_UUID): output for $(basename "$CMD_FILE")" --quiet || true
+            git push origin "$GIT_BRANCH" --quiet || true
             
             echo "✅ Finished $CMD_FILE"
         fi
@@ -137,8 +137,8 @@ process_commands() {
 }
 
 while true; do
-    git fetch origin "$GIT_BRANCH" || true
-    git reset --hard "origin/$GIT_BRANCH" || true
+    git fetch origin "$GIT_BRANCH" --quiet || true
+    git reset --hard "origin/$GIT_BRANCH" --quiet || true
 
     process_commands
 
